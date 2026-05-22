@@ -1,0 +1,31 @@
+schemaVersion: "1"
+kind: mixin
+name: notify-bridge
+displayName: Sandbox Notification Bridge
+description: |
+  Forward Claude Code Notification events from inside the sandbox to the host
+  desktop. The hook appends "<sandbox-id>\t<message>" to
+  <workspace>/.claude/.notify-queue; the watcher script .claude/notify-bridge.sh
+  tails the queue on the host and calls notify-send.
+  Copy `host-files/` to project repo on host.
+  Then add kit AFTER sandbox is created because the Claude settings file will get clobbered by `claude` when it initializes
+  sbx kit add claude-glia sbx/kits/notify-bridge/
+
+commands:
+  install:
+    - description: Add Notification hook to ~/.claude/settings.json
+      user: "1000"
+      command: |
+        set -eu
+        mkdir -p /home/agent/.claude
+        cd /home/agent/.claude
+        existing=$(test -f settings.json && cat settings.json || echo '{}')
+        hook_cmd='jq -r --arg s "${SANDBOX_VM_ID:-}" '"'"'select((.message // "") | length > 0) | "\($s)\t\(.message)"'"'"' >> .claude/.notify-queue'
+        printf '%s' "$existing" | jq --arg cmd "$hook_cmd" '
+          .hooks //= {} |
+          .hooks.Notification //= [] |
+          if any(.hooks.Notification[]?.hooks[]?; .command == $cmd) then .
+          else .hooks.Notification += [{hooks: [{type: "command", command: $cmd}]}]
+          end
+        ' > settings.json.tmp
+        mv settings.json.tmp settings.json
