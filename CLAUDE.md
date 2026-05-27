@@ -10,3 +10,6 @@ All pre-commit hooks (linters) are defined in .pre-commit-config.yaml -- do not 
 
 # File Structure
 Each top-level directory is a kit.
+
+# References
+See https://github.com/docker/sbx-kits-contrib/tree/main for examples, which is cloned locally at ~/open-src/sbx-kits-contrib/.
