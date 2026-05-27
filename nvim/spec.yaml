@@ -18,5 +18,6 @@ commands:
         export DEBIAN_FRONTEND=noninteractive
         apt-get update
         apt-get install -y --no-install-recommends neovim
+        mkdir -p /home/agent/.config/nvim
       user: "0"
       description: Install Neovim via apt
