@@ -1,0 +1,22 @@
+schemaVersion: "1"
+kind: mixin
+name: nvim
+displayName: Neovim
+description: |
+  Install Neovim and a barebones init.lua that sources ~/.vimrc-keys (a
+  mirror of the host keymap). Also exports EDITOR=nvim so $EDITOR-driven
+  prompts (e.g. Claude Code's external editor) open in nvim.
+
+environment:
+  variables:
+    EDITOR: nvim
+
+commands:
+  install:
+    - command: |
+        set -euo pipefail
+        export DEBIAN_FRONTEND=noninteractive
+        apt-get update
+        apt-get install -y --no-install-recommends neovim
+      user: "0"
+      description: Install Neovim via apt
