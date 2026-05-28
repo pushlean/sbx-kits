@@ -18,6 +18,44 @@ commands:
         export DEBIAN_FRONTEND=noninteractive
         apt-get update
         apt-get install -y --no-install-recommends neovim
-        mkdir -p /home/agent/.config/nvim
       user: "0"
       description: Install Neovim via apt
+    - command: |
+        set -euo pipefail
+        mkdir -p ~/.config/nvim
+        cat > ~/.config/nvim/init.lua <<'EOF'
+        vim.cmd 'source ~/.vimrc-keys'
+
+        -- Save and exit with Ctrl+s
+        vim.api.nvim_set_keymap("i", "<C-s>", "<esc>:wq!<cr>", { noremap = true })
+        vim.api.nvim_set_keymap("n", "<C-s>", ":wq!<cr>", { noremap = true })
+        EOF
+        cat > ~/.vimrc-keys <<'EOF'
+        " Swap colon with semi-colon
+        nnoremap ; :
+        nnoremap : ;
+        vnoremap ; :
+        vnoremap : ;
+
+        " Ctrl-j/k deletes blank line below/above, and Alt-j/k inserts.
+        " nnoremap <silent><C-j> m`:silent +g/\m^\s*$/d<CR>``:noh<CR>
+        " nnoremap <silent><C-k> m`:silent -g/\m^\s*$/d<CR>``:noh<CR>
+        nnoremap <silent><A-j> :set paste<CR>m`o<Esc>``:set nopaste<CR>
+        nnoremap <silent><A-k> :set paste<CR>m`O<Esc>``:set nopaste<CR>
+
+        " Copy and paste to system clipboard
+        vmap <C-c> "+y
+        vmap <C-x> "+c
+        vmap <C-v> c<ESC>"+p
+        imap <C-v> <ESC>"+pa
+
+        " delete without yanking
+        "nnoremap d "_d
+        "vnoremap d "_d
+
+        " replace currently selected text with default register
+        " without yanking it
+        "vnoremap p "_dP
+        EOF
+      user: "1000"
+      description: Write Neovim config and keymap files
