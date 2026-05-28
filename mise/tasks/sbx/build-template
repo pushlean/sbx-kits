@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+#MISE description="[host-only] Rebuild and load the sandbox template. Remove the sandbox and re-create it to use the new template."
+set -euo pipefail
+
+source "$(dirname "${BASH_SOURCE[0]}")/_common.sh"
+
+tmpdir=$(mktemp -d)
+trap 'rm -rf "$tmpdir"' EXIT
+
+docker build -t "$TEMPLATE" -f Dockerfile.sbx .
+docker image save "$TEMPLATE" -o "$tmpdir/sbx-template.tar"
+sbx template load "$tmpdir/sbx-template.tar"

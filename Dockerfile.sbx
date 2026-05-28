@@ -1,0 +1,9 @@
+FROM docker/sandbox-templates:claude-code-minimal
+USER agent
+RUN sudo groupadd -f kvm \
+ && sudo usermod -aG kvm agent
+RUN curl -fsSL https://get.docker.com | sudo REPO_ONLY=1 sh \
+ && sudo apt-get install -y docker-sbx dbus-x11
+RUN mkdir -p /home/agent/.config/sandboxes
+# FIXME sbx does not work nested inside the sbx vm, can't write to /home/agent, need to set XDG_CONFIG_HOME to a writable dir
+
