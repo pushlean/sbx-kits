@@ -1,0 +1,30 @@
+schemaVersion: "1"
+kind: mixin
+name: fish
+displayName: Fish
+description: |
+  Install Fish shell and config.fish
+
+commands:
+  install:
+    - command: |
+        set -euo pipefail
+        export DEBIAN_FRONTEND=noninteractive
+        apt-get update
+        apt-get install -y --no-install-recommends fish
+      user: "0"
+      description: Install Neovim via apt
+    - command: |
+        set -euo pipefail
+        mkdir -p ~/.config/fish/
+
+        cat > ~/.config/fish/config.fish <<'EOF'
+
+        fish_vi_key_bindings
+
+        if type -q uv
+          uv generate-shell-completion fish | source
+        end
+        EOF
+      user: "1000"
+      description: Write Fish config
