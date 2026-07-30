@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+# notify-host — raise a desktop notification on the machine running your terminal,
+# by emitting an OSC escape sequence that travels over the terminal stream.
+#
+#   notify-host "Build finished" "42 tests passed"
+#   notify-host --hook            # read Claude Code hook JSON from stdin
+#
+# Env:
+#   NOTIFY_OSC=777|9   escape flavour (default 777)
+#   NOTIFY_TMUX=1|0    force/suppress the tmux passthrough envelope
+#   NOTIFY_TTY=/dev/…  force the output terminal
+set -uo pipefail
+
+if [ "${1:-}" = "--hook" ]; then
+  # Claude Code delivers hook input as JSON on stdin. Notification events carry
+  # .message; other events may not, so fall back to the event name.
+  payload=$(cat)
+  title="Claude Code"
+  body=$(printf '%s' "$payload" | jq -r '.message // .hook_event_name // "notification"' 2>/dev/null)
+  [ -z "$body" ] && body="notification"
+else
+  title=${1:-Notification}
+  body=${2:-}
+fi
+
+case ${NOTIFY_OSC:-777} in
+  9)   seq=$'\e]9;'"${title}${body:+: $body}"$'\a' ;;
+  777) seq=$'\e]777;notify;'"${title};${body}"$'\a' ;;
+  *)   echo "notify-host: NOTIFY_OSC must be 9 or 777" >&2; exit 2 ;;
+esac
+
+# Inside tmux the sequence must be wrapped in a passthrough envelope, and every
+# ESC in the payload doubled. Requires: tmux set -g allow-passthrough on
+#
+# $TMUX is only set when tmux runs in this same container. When tmux is running
+# outside (on the SSH host, past a docker exec boundary) only the inherited TERM
+# survives, so fall back to that. NOTIFY_TMUX=1/0 forces it either way.
+case ${NOTIFY_TMUX:-auto} in
+  1) wrap=yes ;;
+  0) wrap=no ;;
+  *) if [ -n "${TMUX:-}" ] || case ${TERM:-} in screen*|tmux*) true ;; *) false ;; esac
+     then wrap=yes; else wrap=no; fi ;;
+esac
+
+[ "$wrap" = yes ] && seq=$'\ePtmux;'"${seq//$'\e'/$'\e\e'}"$'\e\\'
+
+# Resolve where to write. Hooks (and Claude Code's own subprocesses) are spawned
+# detached from the controlling terminal, so /dev/tty fails and we have to walk
+# the parent chain to find the pty that Claude Code itself is attached to.
+resolve_tty() {
+  [ -n "${NOTIFY_TTY:-}" ] && { echo "$NOTIFY_TTY"; return; }
+  if { : >/dev/tty; } 2>/dev/null; then echo /dev/tty; return; fi
+  local p=$$ t
+  while [ -n "$p" ] && [ "$p" != 0 ]; do
+    t=$(ps -o tty= -p "$p" 2>/dev/null | tr -d '[:space:]')
+    case $t in
+      pts/*) [ -w "/dev/$t" ] && { echo "/dev/$t"; return; } ;;
+    esac
+    p=$(awk '/^PPid:/{print $2}' "/proc/$p/status" 2>/dev/null)
+  done
+}
+
+target=$(resolve_tty)
+if [ -n "$target" ]; then
+  printf '%s' "$seq" > "$target"
+else
+  printf '%s' "$seq"   # last resort: stdout
+fi
