@@ -9,6 +9,9 @@ description: |
   registers a Notification hook that runs `notify-host --hook`. The host's tmux
   (or terminal) raises the desktop notification.
 
+  Each notification is titled with the sandbox name and the current git branch
+  (e.g. `claude-sbx-kits [main]`), so concurrent sandboxes are distinguishable.
+
   Assumes the host runs tmux with `set -g allow-passthrough on` — notify-host
   always emits the passthrough envelope.
 

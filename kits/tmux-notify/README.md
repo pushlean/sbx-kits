@@ -12,6 +12,21 @@ desktop notification.
 ESC Ptmux; ESC ESC ]777;notify;<title>;<body> BEL ESC \
 ```
 
+## Notification title
+
+The body is Claude's own message; the title says *which session* it came from,
+so concurrent sandboxes are told apart without hunting through tmux windows:
+
+```
+claude-sbx-kits [main]
+└─ $SANDBOX_VM_ID   └─ git branch in the session's cwd
+```
+
+`$SANDBOX_VM_ID` is the `sbx` sandbox name, falling back to the container
+hostname and then to `Claude Code`. The bracketed branch is dropped entirely on
+a detached HEAD or outside a repository. Calling `notify-host` with explicit
+arguments bypasses all of this and uses the title you pass.
+
 ## Install
 
 Add the kit **after** the sandbox is created — `claude` clobbers
@@ -120,3 +135,11 @@ NOTIFY_TTY=/dev/pts/2 notify-host "test" "hello"
 Exit status is `0` either way; the signal is the absence of the
 `no terminal found` warning on stderr. That only confirms the bytes reached a
 pty — whether a notification actually pops depends on the host tmux and terminal.
+
+To exercise the hook path and its derived title, feed it a payload and force the
+output to stdout so the escape sequence is inspectable instead of delivered:
+
+```bash
+echo '{"message":"test","cwd":"'"$PWD"'"}' |
+  NOTIFY_TTY=/dev/stdout ~/.claude/notify-host --hook | cat -v
+```

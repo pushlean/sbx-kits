@@ -5,6 +5,10 @@
 #   notify-host "Build finished" "42 tests passed"
 #   notify-host --hook            # read Claude Code hook JSON from stdin
 #
+# In --hook mode the title identifies *which* session is asking — `<sandbox>` or
+# `<sandbox> [<branch>]` — so that concurrent sandboxes are told apart at a
+# glance. Called with explicit arguments, the caller's title is used verbatim.
+#
 # Env:
 #   NOTIFY_OSC=777|9   escape flavour (default 777)
 #   NOTIFY_TTY=/dev/…  force the output terminal
@@ -12,11 +16,26 @@ set -uo pipefail
 
 if [ "${1:-}" = "--hook" ]; then
   # Claude Code delivers hook input as JSON on stdin. Notification events carry
-  # .message; other events may not, so fall back to the event name.
+  # .message; other events may not, so fall back to the event name. .cwd is the
+  # session's working directory, which is what the branch is read from.
   payload=$(cat)
-  title="Claude Code"
-  body=$(printf '%s' "$payload" | jq -r '.message // .hook_event_name // "notification"' 2>/dev/null)
-  [ -z "$body" ] && body="notification"
+  # cwd comes out first so it can be read as a single line; .message may well be
+  # multi-line, so it goes last and is swallowed whole.
+  { read -r cwd; body=$(cat); } < <(
+    printf '%s' "$payload" |
+      jq -r '(.cwd // ""), (.message // .hook_event_name // "notification")' 2>/dev/null
+  )
+  [ -z "${body:-}" ] && body="notification"
+
+  # SANDBOX_VM_ID is the sbx sandbox name (also the container hostname). Outside
+  # a sandbox neither is meaningful, hence the final literal fallback.
+  title=${SANDBOX_VM_ID:-$(hostname 2>/dev/null)}
+  [ -z "$title" ] && title="Claude Code"
+
+  # Empty for a detached HEAD, non-zero outside a repo — both mean "no branch to
+  # show", so the bracketed segment is dropped rather than left empty.
+  branch=$(git -C "${cwd:-.}" branch --show-current 2>/dev/null)
+  [ -n "$branch" ] && title="$title [$branch]"
 else
   title=${1:-Notification}
   body=${2:-}
@@ -24,7 +43,9 @@ fi
 
 case ${NOTIFY_OSC:-777} in
   9)   seq=$'\e]9;'"${title}${body:+: $body}"$'\a' ;;
-  777) seq=$'\e]777;notify;'"${title};${body}"$'\a' ;;
+  # `;` is the field separator here, and git permits it in a refname — a branch
+  # containing one would silently split the title and eat the body.
+  777) seq=$'\e]777;notify;'"${title//;/,};${body}"$'\a' ;;
   *)   echo "notify-host: NOTIFY_OSC must be 9 or 777" >&2; exit 2 ;;
 esac
 
