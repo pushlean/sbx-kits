@@ -1,16 +1,41 @@
 # tmux-notify
 
-Forward Claude Code `Notification` events from inside a sandbox to the host
+Forward Claude Code notification events from inside a sandbox to the host
 desktop over the terminal stream — no host-side watcher process required.
 
-The kit installs `~/.claude/notify-host` and registers a `Notification` hook that
-runs `notify-host --hook`. The script emits an OSC escape sequence wrapped in a
-tmux passthrough envelope; the host's tmux (or terminal emulator) turns it into a
+The kit installs `~/.claude/notify-host` and registers two hooks, both running
+`notify-host --hook`. The script emits an OSC escape sequence wrapped in a tmux
+passthrough envelope; the host's tmux (or terminal emulator) turns it into a
 desktop notification.
 
 ```
 ESC Ptmux; ESC ESC ]777;notify;<title>;<body> BEL ESC \
 ```
+
+| Hook | Fires on |
+| --- | --- |
+| `Notification` | permission prompts, `Claude is waiting for your input` idle |
+| `PreToolUse` matching `ExitPlanMode` | plan mode — the plan is ready for review |
+
+## Why plan mode needs its own hook
+
+Claude Code *does* map the plan-approval dialog to a `Notification`
+(`Claude Code needs your approval for the plan`, `notification_type`
+`permission_prompt`), but it is emitted from a 6-second poller that also
+requires you to have been idle for 6 seconds:
+
+```js
+Bu(() => { if (Date.now() - lastInteractionTime >= 6000) notify(…) }, 6000)
+```
+
+Every tick you spend touching the keyboard is skipped, so the notification
+arrives late or never — exactly when you are watching the terminal and about to
+tab away. `PreToolUse` on `ExitPlanMode` fires the instant Claude submits the
+plan, with no idle heuristic in the way, and its body reads
+`Plan ready for your review`.
+
+Both hooks stay registered: they cover disjoint cases, and the plan dialog's own
+`Notification` is a harmless late duplicate at worst.
 
 ## Notification title
 
@@ -142,4 +167,10 @@ output to stdout so the escape sequence is inspectable instead of delivered:
 ```bash
 echo '{"message":"test","cwd":"'"$PWD"'"}' |
   NOTIFY_TTY=/dev/stdout ~/.claude/notify-host --hook | cat -v
+
+echo '{"hook_event_name":"PreToolUse","tool_name":"ExitPlanMode","cwd":"'"$PWD"'"}' |
+  NOTIFY_TTY=/dev/stdout ~/.claude/notify-host --hook | cat -v
 ```
+
+Restart `claude` after adding the kit — a running session may not pick up hook
+changes written to `settings.json` underneath it.

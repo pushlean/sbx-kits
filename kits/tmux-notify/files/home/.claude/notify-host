@@ -16,14 +16,21 @@ set -uo pipefail
 
 if [ "${1:-}" = "--hook" ]; then
   # Claude Code delivers hook input as JSON on stdin. Notification events carry
-  # .message; other events may not, so fall back to the event name. .cwd is the
-  # session's working directory, which is what the branch is read from.
+  # .message; tool events carry .tool_name instead, so ExitPlanMode gets a phrased
+  # body and anything else falls back to the tool, then the event name. .cwd is
+  # the session's working directory, which is what the branch is read from.
   payload=$(cat)
   # cwd comes out first so it can be read as a single line; .message may well be
   # multi-line, so it goes last and is swallowed whole.
   { read -r cwd; body=$(cat); } < <(
     printf '%s' "$payload" |
-      jq -r '(.cwd // ""), (.message // .hook_event_name // "notification")' 2>/dev/null
+      jq -r '
+        (.cwd // ""),
+        (.message
+         // (.tool_name | if . == "ExitPlanMode" then "Plan ready for your review" else . end)
+         // .hook_event_name
+         // "notification")
+      ' 2>/dev/null
   )
   [ -z "${body:-}" ] && body="notification"
 

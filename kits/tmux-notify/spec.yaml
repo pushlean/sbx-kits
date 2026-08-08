@@ -6,8 +6,10 @@ description: |
   Forward Claude Code Notification events to the host desktop over the terminal
   stream — no host-side watcher required. Installs ~/.claude/notify-host, which
   emits an OSC 777 escape sequence wrapped in a tmux passthrough envelope, and
-  registers a Notification hook that runs `notify-host --hook`. The host's tmux
-  (or terminal) raises the desktop notification.
+  registers Notification and PreToolUse/ExitPlanMode hooks that run
+  `notify-host --hook`. The host's tmux (or terminal) raises the desktop
+  notification. The second hook covers plan mode, whose approval prompt the
+  Notification event delivers late or not at all.
 
   Each notification is titled with the sandbox name and the current git branch
   (e.g. `claude-sbx-kits [main]`), so concurrent sandboxes are distinguishable.
@@ -24,7 +26,7 @@ setup:
     # notify-host itself ships as files/home/.claude/notify-host and is copied in
     # by the engine with its on-disk mode preserved — no install step needed. That
     # copy runs *after* install commands, hence the mkdir below.
-    - description: Register the Notification hook in ~/.claude/settings.json
+    - description: Register the notification hooks in ~/.claude/settings.json
       user: "1000"
       command: |
         set -eu
@@ -32,11 +34,19 @@ setup:
         cd /home/agent/.claude
         existing=$(test -f settings.json && cat settings.json || echo '{}')
         cmd='/home/agent/.claude/notify-host --hook'
+        # Two events, because Notification alone misses plan approval in practice:
+        # Claude Code emits the plan dialog's Notification from a 6s poller that
+        # is skipped while you are interacting, so it can lag badly or never land.
+        # PreToolUse on ExitPlanMode fires the moment the plan is submitted.
         printf '%s' "$existing" | jq --arg cmd "$cmd" '
+          def entry: {hooks: [{type: "command", command: $cmd, timeout: 5}]};
           .hooks //= {} |
           .hooks.Notification //= [] |
-          if any(.hooks.Notification[]?.hooks[]?; .command == $cmd) then .
-          else .hooks.Notification += [{hooks: [{type: "command", command: $cmd, timeout: 5}]}]
-          end
+          .hooks.PreToolUse //= [] |
+          (if any(.hooks.Notification[]?.hooks[]?; .command == $cmd) then .
+           else .hooks.Notification += [entry] end) |
+          (if any(.hooks.PreToolUse[]?; .matcher == "ExitPlanMode"
+                  and any(.hooks[]?; .command == $cmd)) then .
+           else .hooks.PreToolUse += [entry + {matcher: "ExitPlanMode"}] end)
         ' > settings.json.tmp
         mv settings.json.tmp settings.json
