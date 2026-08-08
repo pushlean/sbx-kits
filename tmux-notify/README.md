@@ -61,7 +61,7 @@ notify-host: no terminal found; notification not delivered
 
 No amount of parent-chain walking fixes this — the pty is not in the namespace at
 all. The only in-sandbox workarounds are a hardcoded `NOTIFY_TTY` or a separate
-transport (see the sibling `notify-bridge` kit).
+transport.
 
 **This should not come up in practice.** Inside an `sbx` sandbox running yolo mode
 (`claude --dangerously-skip-permissions`, i.e. `bypassPermissions`), the container

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-#MISE description="[host-only] Run Docker sandbox with local template and default kits; start notify-bridge watcher"
+#MISE description="[host-only] Run Docker sandbox with local template and default kits"
 #USAGE flag "-s --sandbox-slug <slug>" help="Override sandbox slug (default: <agent>-<workdir>)"
 #USAGE flag "-a --agent <agent>" help="Agent used in the sandbox" default="claude"
 set -euo pipefail
@@ -16,24 +16,9 @@ if [ -n "${usage_sandbox_slug:-}" ]; then
 else
   SANDBOX="${AGENT}-${WORKDIR}"
 fi
-WATCHER=./.claude/notify-bridge.sh
-
-if [ ! -f "$WATCHER" ]; then
-  echo "warning: $WATCHER not found — notify-bridge watcher will not start." >&2
-  echo "         the kit installs it on first \`sbx run --kit\`; re-run this task afterwards." >&2
-else
-  abs_watcher="$(realpath "$WATCHER")"
-  if ! pgrep -fx "bash $abs_watcher" >/dev/null 2>&1 \
-     && ! pgrep -fx "$abs_watcher" >/dev/null 2>&1; then
-    echo "starting notify-bridge watcher in background"
-    nohup "$abs_watcher" >/tmp/notify-bridge.log 2>&1 &
-    disown
-  fi
-fi
 
 if ! sbx ls 2>/dev/null | grep -qw "$SANDBOX"; then
   sbx create --template "$TEMPLATE" --name "$SANDBOX" "$AGENT" "$WORKDIRPATH"
-  sbx kit add "$SANDBOX" notify-bridge/
 fi
 
 exec sbx run $SANDBOX
