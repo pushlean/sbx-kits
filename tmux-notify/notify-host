@@ -50,12 +50,25 @@ esac
 resolve_tty() {
   [ -n "${NOTIFY_TTY:-}" ] && { echo "$NOTIFY_TTY"; return; }
   if { : >/dev/tty; } 2>/dev/null; then echo /dev/tty; return; fi
-  local p=$$ t
+  local p=$$ t fd
   while [ -n "$p" ] && [ "$p" != 0 ]; do
     t=$(ps -o tty= -p "$p" 2>/dev/null | tr -d '[:space:]')
     case $t in
       pts/*) [ -w "/dev/$t" ] && { echo "/dev/$t"; return; } ;;
     esac
+    # Having no *controlling* terminal is not the same as having no terminal,
+    # and `ps -o tty=` only reports the former. `sbx exec -it <box> claude`
+    # hands claude the pty on its stdio without making it the session's
+    # controlling tty, so every rung of this walk reports `?` even though the
+    # pty is sitting right there on fd 0/1/2. (Going through a shell first —
+    # `sbx exec -it <box> /bin/bash`, then `claude` — sets up a session with a
+    # controlling tty, which is why that path worked and the direct one didn't.)
+    for fd in 0 1 2; do
+      t=$(readlink "/proc/$p/fd/$fd" 2>/dev/null)
+      case $t in
+        /dev/pts/*) [ -w "$t" ] && { echo "$t"; return; } ;;
+      esac
+    done
     p=$(awk '/^PPid:/{print $2}' "/proc/$p/status" 2>/dev/null)
   done
 }
@@ -64,5 +77,9 @@ target=$(resolve_tty)
 if [ -n "$target" ]; then
   printf '%s' "$seq" > "$target"
 else
-  printf '%s' "$seq"   # last resort: stdout
+  # Last resort. If stdout is a pipe (hooks) rather than a terminal, this
+  # goes nowhere visible and the notification is silently lost, so say so —
+  # otherwise a failed notify is indistinguishable from a delivered one.
+  [ -t 1 ] || echo "notify-host: no terminal found; notification not delivered" >&2
+  printf '%s' "$seq"
 fi

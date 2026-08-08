@@ -1,0 +1,132 @@
+schemaVersion: "1"
+kind: mixin
+name: tmux-notify
+displayName: tmux Desktop Notifications
+description: |
+  Forward Claude Code Notification events to the host desktop over the terminal
+  stream — no host-side watcher required. Installs ~/.claude/notify-host, which
+  emits an OSC 777 escape sequence wrapped in a tmux passthrough envelope, and
+  registers a Notification hook that runs `notify-host --hook`. The host's tmux
+  (or terminal) raises the desktop notification.
+
+  Assumes the host runs tmux with `set -g allow-passthrough on` (hence the
+  NOTIFY_TMUX=1 default, which forces the passthrough envelope).
+
+  Add this kit AFTER the sandbox is created, because `claude` clobbers
+  ~/.claude/settings.json when it first initializes:
+    sbx kit add <sandbox> tmux-notify/
+
+environment:
+  variables:
+    NOTIFY_TMUX: "1"
+
+commands:
+  install:
+    - description: Install the notify-host script to ~/.claude/notify-host
+      user: "1000"
+      command: |
+        set -euo pipefail
+        install -d -m 755 /home/agent/.claude
+        cat > /home/agent/.claude/notify-host <<'NOTIFY_HOST_EOF'
+        #!/usr/bin/env bash
+        # notify-host — raise a desktop notification on the machine running your terminal,
+        # by emitting an OSC escape sequence that travels over the terminal stream.
+        #
+        #   notify-host "Build finished" "42 tests passed"
+        #   notify-host --hook            # read Claude Code hook JSON from stdin
+        #
+        # Env:
+        #   NOTIFY_OSC=777|9   escape flavour (default 777)
+        #   NOTIFY_TMUX=1|0    force/suppress the tmux passthrough envelope
+        #   NOTIFY_TTY=/dev/…  force the output terminal
+        set -uo pipefail
+
+        if [ "${1:-}" = "--hook" ]; then
+          # Claude Code delivers hook input as JSON on stdin. Notification events carry
+          # .message; other events may not, so fall back to the event name.
+          payload=$(cat)
+          title="Claude Code"
+          body=$(printf '%s' "$payload" | jq -r '.message // .hook_event_name // "notification"' 2>/dev/null)
+          [ -z "$body" ] && body="notification"
+        else
+          title=${1:-Notification}
+          body=${2:-}
+        fi
+
+        case ${NOTIFY_OSC:-777} in
+          9)   seq=$'\e]9;'"${title}${body:+: $body}"$'\a' ;;
+          777) seq=$'\e]777;notify;'"${title};${body}"$'\a' ;;
+          *)   echo "notify-host: NOTIFY_OSC must be 9 or 777" >&2; exit 2 ;;
+        esac
+
+        # Inside tmux the sequence must be wrapped in a passthrough envelope, and every
+        # ESC in the payload doubled. Requires: tmux set -g allow-passthrough on
+        #
+        # $TMUX is only set when tmux runs in this same container. When tmux is running
+        # outside (on the SSH host, past a docker exec boundary) only the inherited TERM
+        # survives, so fall back to that. NOTIFY_TMUX=1/0 forces it either way.
+        case ${NOTIFY_TMUX:-auto} in
+          1) wrap=yes ;;
+          0) wrap=no ;;
+          *) if [ -n "${TMUX:-}" ] || case ${TERM:-} in screen*|tmux*) true ;; *) false ;; esac
+             then wrap=yes; else wrap=no; fi ;;
+        esac
+
+        [ "$wrap" = yes ] && seq=$'\ePtmux;'"${seq//$'\e'/$'\e\e'}"$'\e\\'
+
+        # Resolve where to write. Hooks (and Claude Code's own subprocesses) are spawned
+        # detached from the controlling terminal, so /dev/tty fails and we have to walk
+        # the parent chain to find the pty that Claude Code itself is attached to.
+        resolve_tty() {
+          [ -n "${NOTIFY_TTY:-}" ] && { echo "$NOTIFY_TTY"; return; }
+          if { : >/dev/tty; } 2>/dev/null; then echo /dev/tty; return; fi
+          local p=$$ t fd
+          while [ -n "$p" ] && [ "$p" != 0 ]; do
+            t=$(ps -o tty= -p "$p" 2>/dev/null | tr -d '[:space:]')
+            case $t in
+              pts/*) [ -w "/dev/$t" ] && { echo "/dev/$t"; return; } ;;
+            esac
+            # Having no *controlling* terminal is not the same as having no terminal,
+            # and `ps -o tty=` only reports the former. `sbx exec -it <box> claude`
+            # hands claude the pty on its stdio without making it the session's
+            # controlling tty, so every rung of this walk reports `?` even though the
+            # pty is sitting right there on fd 0/1/2. (Going through a shell first —
+            # `sbx exec -it <box> /bin/bash`, then `claude` — sets up a session with a
+            # controlling tty, which is why that path worked and the direct one didn't.)
+            for fd in 0 1 2; do
+              t=$(readlink "/proc/$p/fd/$fd" 2>/dev/null)
+              case $t in
+                /dev/pts/*) [ -w "$t" ] && { echo "$t"; return; } ;;
+              esac
+            done
+            p=$(awk '/^PPid:/{print $2}' "/proc/$p/status" 2>/dev/null)
+          done
+        }
+
+        target=$(resolve_tty)
+        if [ -n "$target" ]; then
+          printf '%s' "$seq" > "$target"
+        else
+          # Last resort. If stdout is a pipe (hooks) rather than a terminal, this
+          # goes nowhere visible and the notification is silently lost, so say so —
+          # otherwise a failed notify is indistinguishable from a delivered one.
+          [ -t 1 ] || echo "notify-host: no terminal found; notification not delivered" >&2
+          printf '%s' "$seq"
+        fi
+        NOTIFY_HOST_EOF
+        chmod +x /home/agent/.claude/notify-host
+    - description: Register the Notification hook in ~/.claude/settings.json
+      user: "1000"
+      command: |
+        set -eu
+        cd /home/agent/.claude
+        existing=$(test -f settings.json && cat settings.json || echo '{}')
+        cmd='/home/agent/.claude/notify-host --hook'
+        printf '%s' "$existing" | jq --arg cmd "$cmd" '
+          .hooks //= {} |
+          .hooks.Notification //= [] |
+          if any(.hooks.Notification[]?.hooks[]?; .command == $cmd) then .
+          else .hooks.Notification += [{hooks: [{type: "command", command: $cmd, timeout: 5}]}]
+          end
+        ' > settings.json.tmp
+        mv settings.json.tmp settings.json
