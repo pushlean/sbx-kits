@@ -9,7 +9,7 @@ Note: the tasks described as "host-only" are not meant to be run inside a Docker
 All pre-commit hooks (linters) are defined in .pre-commit-config.yaml -- do not duplicate these hooks as mise tasks. Claude hooks into these as well in project settings: `.claude/settings.json`.
 
 # File Structure
-Each top-level directory is a kit.
+Each directory under [`kits/`](./kits/) is a kit.
 
 # References
 See https://github.com/docker/sbx-kits-contrib/tree/main for examples, which is cloned locally at ~/open-src/sbx-kits-contrib/.

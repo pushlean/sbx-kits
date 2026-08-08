@@ -3,6 +3,6 @@ repos:
     hooks:
       - id: sbx-kit-validate
         name: sbx-kit-validate
-        entry: bash -c 'printf "%s\n" "$@" | cut -d/ -f1-3 | sort -u | xargs -r -n1 sbx kit validate' --
+        entry: bash -c 'printf "%s\n" "$@" | cut -d/ -f1-2 | sort -u | xargs -r -n1 sbx kit validate' --
         language: system
-        files: ^[^/]+/
+        files: ^kits/

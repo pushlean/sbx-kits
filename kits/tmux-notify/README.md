@@ -18,7 +18,7 @@ Add the kit **after** the sandbox is created — `claude` clobbers
 `~/.claude/settings.json` when it first initializes:
 
 ```bash
-sbx kit add <sandbox> tmux-notify/
+sbx kit add <sandbox> kits/tmux-notify/
 ```
 
 ## Usage

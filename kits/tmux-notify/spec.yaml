@@ -14,7 +14,7 @@ description: |
 
   Add this kit AFTER the sandbox is created, because `claude` clobbers
   ~/.claude/settings.json when it first initializes:
-    sbx kit add <sandbox> tmux-notify/
+    sbx kit add <sandbox> kits/tmux-notify/
 
 environment:
   variables:
