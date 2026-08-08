@@ -31,13 +31,12 @@ notify-host --hook            # reads Claude Code hook JSON on stdin
 | Env | Meaning |
 | --- | --- |
 | `NOTIFY_OSC=777\|9` | escape flavour (default `777`) |
-| `NOTIFY_TMUX=1\|0` | force / suppress the tmux passthrough envelope (kit sets `1`) |
 | `NOTIFY_TTY=/dev/…` | force the output terminal, skipping tty resolution |
 
 ## Requirements
 
-The host tmux must allow passthrough, otherwise the envelope is stripped and
-nothing fires:
+The envelope is always emitted — this kit assumes the host runs tmux. That tmux
+must allow passthrough, otherwise the envelope is stripped and nothing fires:
 
 ```tmux
 set -g allow-passthrough on

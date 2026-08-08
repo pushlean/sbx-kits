@@ -7,7 +7,6 @@
 #
 # Env:
 #   NOTIFY_OSC=777|9   escape flavour (default 777)
-#   NOTIFY_TMUX=1|0    force/suppress the tmux passthrough envelope
 #   NOTIFY_TTY=/dev/…  force the output terminal
 set -uo pipefail
 
@@ -32,17 +31,11 @@ esac
 # Inside tmux the sequence must be wrapped in a passthrough envelope, and every
 # ESC in the payload doubled. Requires: tmux set -g allow-passthrough on
 #
-# $TMUX is only set when tmux runs in this same container. When tmux is running
-# outside (on the SSH host, past a docker exec boundary) only the inherited TERM
-# survives, so fall back to that. NOTIFY_TMUX=1/0 forces it either way.
-case ${NOTIFY_TMUX:-auto} in
-  1) wrap=yes ;;
-  0) wrap=no ;;
-  *) if [ -n "${TMUX:-}" ] || case ${TERM:-} in screen*|tmux*) true ;; *) false ;; esac
-     then wrap=yes; else wrap=no; fi ;;
-esac
-
-[ "$wrap" = yes ] && seq=$'\ePtmux;'"${seq//$'\e'/$'\e\e'}"$'\e\\'
+# This kit assumes the host always runs tmux, so the envelope is unconditional.
+# Auto-detection isn't an option anyway: $TMUX is only set when tmux runs in this
+# same container, and when tmux is running outside (on the SSH host, past a
+# docker exec boundary) not even TERM reliably survives.
+seq=$'\ePtmux;'"${seq//$'\e'/$'\e\e'}"$'\e\\'
 
 # Resolve where to write. Hooks (and Claude Code's own subprocesses) are spawned
 # detached from the controlling terminal, so /dev/tty fails and we have to walk
