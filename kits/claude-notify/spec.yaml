@@ -1,7 +1,9 @@
 schemaVersion: "2"
 kind: mixin
-name: tmux-notify
-displayName: tmux Desktop Notifications
+name: claude-notify
+requires:
+  agent: claude
+displayName: Claude Desktop Notifications
 description: |
   Forward Claude Code Notification events to the host desktop over the terminal
   stream — no host-side watcher required. Installs ~/.claude/notify-host, which
@@ -19,7 +21,7 @@ description: |
 
   Add this kit AFTER the sandbox is created, because `claude` clobbers
   ~/.claude/settings.json when it first initializes:
-    sbx kit add <sandbox> kits/tmux-notify/
+    sbx kit add <sandbox> kits/claude-notify/
 
 setup:
   install:
