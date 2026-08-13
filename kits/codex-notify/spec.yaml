@@ -1,0 +1,100 @@
+schemaVersion: "2"
+kind: mixin
+name: codex-notify
+requires:
+  agent: codex
+displayName: Codex Desktop Notifications
+description: |
+  Forward Codex attention notifications to the host desktop over the terminal
+  stream — no host-side watcher required. Installs ~/.codex/notify-host, which
+  emits an OSC 777 escape sequence wrapped in a tmux passthrough envelope, and
+  configures Codex's native user-level `notify` command to invoke it.
+
+  Enables Codex TUI notifications and configures them to notify even while the
+  terminal is focused. Forward its turn-complete, approval, and plan-review events. Each
+  notification is titled with the sandbox name and current git branch (for example,
+  `codex-sbx-kits [main]`), so concurrent sandboxes are distinguishable.
+
+  Assumes the host runs tmux with `set -g allow-passthrough on` — notify-host
+  always emits the passthrough envelope.
+
+  The kit will not replace an existing Codex `notify` command. Remove or merge
+  that command before installing this kit.
+
+setup:
+  install:
+    # notify-host ships in files/home/.codex/ and is copied by the engine after
+    # install commands. This setup only creates and configures config.toml.
+    - description: Configure Codex desktop notifications
+      user: "1000"
+      command: |
+        set -eu
+        codex_home=/home/agent/.codex
+        config="$codex_home/config.toml"
+        setting='notify = ["/home/agent/.codex/notify-host", "--codex"]'
+        mkdir -p "$codex_home"
+
+        if [ ! -f "$config" ]; then
+          printf '%s\n' "$setting" > "$config"
+        else
+          # `notify` is a user-level top-level setting. Do not replace another
+          # notifier: Codex supports only one command, so replacing it would make
+          # this kit unexpectedly destructive.
+          if awk '
+            /^[[:space:]]*\[/ { in_table = 1 }
+            !in_table && /^[[:space:]]*notify[[:space:]]*=/ { found = 1 }
+            END { exit !found }
+          ' "$config"; then
+            if ! grep -Fqx "$setting" "$config"; then
+              echo "codex-notify: ~/.codex/config.toml already configures notify; refusing to replace it" >&2
+              echo "codex-notify: merge $setting into your existing notifier, then rerun if desired" >&2
+              exit 1
+            fi
+          else
+            # A top-level key appended after a table would belong to that table in
+            # TOML. Insert before the first table instead, preserving all existing
+            # configuration and comments.
+            tmp=$(mktemp "${config}.tmp.XXXXXX")
+            awk -v setting="$setting" '
+              !inserted && /^[[:space:]]*\[/ {
+                print setting
+                print ""
+                inserted = 1
+              }
+              { print }
+              END {
+                if (!inserted) {
+                  print ""
+                  print setting
+                }
+              }
+            ' "$config" > "$tmp"
+            mv "$tmp" "$config"
+          fi
+        fi
+
+        # Set the TUI policy in its own table. Existing values for these two
+        # keys are replaced so reinstalling the kit remains idempotent.
+        tmp=$(mktemp "${config}.tmp.XXXXXX")
+        awk '
+          /^[[:space:]]*\[tui\][[:space:]]*(#.*)?$/ {
+            in_tui = 1
+            found_tui = 1
+            print
+            print "notifications = true"
+            print "notification_condition = \"always\""
+            next
+          }
+          /^[[:space:]]*\[/ { in_tui = 0 }
+          in_tui && /^[[:space:]]*(notifications|notification_condition)[[:space:]]*=/ { next }
+          { print }
+          END {
+            if (!found_tui) {
+              print ""
+              print "[tui]"
+              print "notifications = true"
+              print "notification_condition = \"always\""
+            }
+          }
+        ' "$config" > "$tmp"
+        mv "$tmp" "$config"

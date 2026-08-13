@@ -1,0 +1,100 @@
+#!/usr/bin/env bash
+# notify-host — raise a desktop notification on the machine running your
+# terminal by emitting an OSC escape sequence over the terminal stream.
+#
+#   notify-host "Build finished" "42 tests passed"
+#   notify-host --codex '<Codex notification JSON>'
+#
+# In --codex mode, Codex decides when to invoke the notifier. The title
+# identifies which sandbox/session is asking — `<sandbox>` or
+# `<sandbox> [<branch>]`.
+#
+# Env:
+#   NOTIFY_OSC=777|9   escape flavour (default 777)
+#   NOTIFY_TTY=/dev/…  force the output terminal
+set -uo pipefail
+
+if [ "${1:-}" = "--codex" ]; then
+  # Codex supplies its native notification payload as one JSON argument.
+  # Notification timing (including terminal-focus handling) is decided by
+  # Codex; this adapter only renders the payload it receives.
+  payload=${2:-}
+  if [ -z "$payload" ]; then
+    echo "notify-host: missing Codex notification payload" >&2
+    exit 2
+  fi
+
+  event=$(printf '%s' "$payload" | jq -r '.type // ""' 2>/dev/null) || {
+    echo "notify-host: invalid Codex notification payload" >&2
+    exit 2
+  }
+  cwd=$(printf '%s' "$payload" | jq -r '.cwd // ""' 2>/dev/null) || cwd=
+
+  case $event in
+    agent-turn-complete)
+      body=$(printf '%s' "$payload" | jq -r '."last-assistant-message" // "Codex finished its turn"' 2>/dev/null)
+      ;;
+    approval-request|approval-requested|permission-request)
+      body=$(printf '%s' "$payload" | jq -r '.message // "Codex needs your approval"' 2>/dev/null)
+      ;;
+    plan-mode-prompt)
+      body="Plan ready for your review"
+      ;;
+    *) exit 0 ;;
+  esac
+  [ -z "${body:-}" ] && body="Codex needs your attention"
+
+  # SANDBOX_VM_ID is the sbx sandbox name (also the container hostname).
+  # Outside a sandbox neither is meaningful, hence the final literal fallback.
+  title=${SANDBOX_VM_ID:-$(hostname 2>/dev/null)}
+  [ -z "$title" ] && title="Codex"
+
+  # Empty for detached HEAD, non-zero outside a repository — both mean no
+  # branch marker. Codex includes the session cwd in its notification payload.
+  branch=$(git -C "${cwd:-.}" branch --show-current 2>/dev/null)
+  [ -n "$branch" ] && title="$title [$branch]"
+else
+  title=${1:-Notification}
+  body=${2:-}
+fi
+
+case ${NOTIFY_OSC:-777} in
+  9)   seq=$'\e]9;'"${title}${body:+: $body}"$'\a' ;;
+  # `;` is the field separator here, and git permits it in a refname — a branch
+  # containing one would silently split the title and eat the body.
+  777) seq=$'\e]777;notify;'"${title//;/,};${body}"$'\a' ;;
+  *)   echo "notify-host: NOTIFY_OSC must be 9 or 777" >&2; exit 2 ;;
+esac
+
+# Inside tmux the sequence must be wrapped in a passthrough envelope, and every
+# ESC in the payload doubled. Requires: tmux set -g allow-passthrough on.
+seq=$'\ePtmux;'"${seq//$'\e'/$'\e\e'}"$'\e\\'
+
+# Codex invokes the notifier as a child process, so it can be detached from the
+# controlling terminal. Walk ancestors and their stdio FDs to locate the pty.
+resolve_tty() {
+  [ -n "${NOTIFY_TTY:-}" ] && { echo "$NOTIFY_TTY"; return; }
+  if { : >/dev/tty; } 2>/dev/null; then echo /dev/tty; return; fi
+  local p=$$ t fd
+  while [ -n "$p" ] && [ "$p" != 0 ]; do
+    t=$(ps -o tty= -p "$p" 2>/dev/null | tr -d '[:space:]')
+    case $t in
+      pts/*) [ -w "/dev/$t" ] && { echo "/dev/$t"; return; } ;;
+    esac
+    for fd in 0 1 2; do
+      t=$(readlink "/proc/$p/fd/$fd" 2>/dev/null)
+      case $t in
+        /dev/pts/*) [ -w "$t" ] && { echo "$t"; return; } ;;
+      esac
+    done
+    p=$(awk '/^PPid:/{print $2}' "/proc/$p/status" 2>/dev/null)
+  done
+}
+
+target=$(resolve_tty)
+if [ -n "$target" ]; then
+  printf '%s' "$seq" > "$target"
+else
+  [ -t 1 ] || echo "notify-host: no terminal found; notification not delivered" >&2
+  printf '%s' "$seq"
+fi
