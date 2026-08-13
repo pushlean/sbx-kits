@@ -1,0 +1,12 @@
+schemaVersion: "2"
+kind: sandbox
+name: my-codex
+displayName: My Codex
+description: My personalized Codex sandbox.
+
+extends: codex
+
+mixins:
+  - ../fish/
+  - ../nvim/
+  - ../codex-notify/
