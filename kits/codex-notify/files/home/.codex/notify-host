@@ -58,6 +58,22 @@ else
   body=${2:-}
 fi
 
+# OSC payloads are terminal instructions, so text embedded in them must not be
+# able to terminate the notification and start another control sequence. Use
+# jq here (already required for Codex payloads) so Unicode text is preserved
+# while C0/C1 controls, DEL, and line breaks are replaced with spaces.
+sanitize_osc_text() {
+  printf '%s' "$1" | jq -Rrs 'gsub("[\u0000-\u001F\u007F-\u009F]"; " ")'
+}
+title=$(sanitize_osc_text "$title") || {
+  echo "notify-host: failed to sanitize notification title" >&2
+  exit 2
+}
+body=$(sanitize_osc_text "$body") || {
+  echo "notify-host: failed to sanitize notification body" >&2
+  exit 2
+}
+
 case ${NOTIFY_OSC:-777} in
   9)   seq=$'\e]9;'"${title}${body:+: $body}"$'\a' ;;
   # `;` is the field separator here, and git permits it in a refname — a branch
