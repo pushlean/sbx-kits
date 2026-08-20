@@ -44,9 +44,9 @@ if [ "${1:-}" = "--codex" ]; then
   esac
   [ -z "${body:-}" ] && body="Codex needs your attention"
 
-  # SANDBOX_VM_ID is the sbx sandbox name (also the container hostname).
-  # Outside a sandbox neither is meaningful, hence the final literal fallback.
-  title=${SANDBOX_VM_ID:-$(hostname 2>/dev/null)}
+  # SANDBOX_NAME is the sandbox name in sbx 0.39+. Fall back to the legacy
+  # SANDBOX_VM_ID used by earlier releases, then the hostname outside sbx.
+  title=${SANDBOX_NAME:-${SANDBOX_VM_ID:-$(hostname 2>/dev/null)}}
   [ -z "$title" ] && title="Codex"
 
   # Empty for detached HEAD, non-zero outside a repository — both mean no

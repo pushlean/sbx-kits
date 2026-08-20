@@ -30,12 +30,13 @@ came from, so concurrent sandboxes are distinguishable:
 
 ```
 codex-sbx-kits [main]
-└─ $SANDBOX_VM_ID   └─ git branch in Codex's session cwd
+└─ $SANDBOX_NAME    └─ git branch in Codex's session cwd
 ```
 
-`$SANDBOX_VM_ID` is the `sbx` sandbox name, falling back to the container
-hostname and then `Codex`. The bracketed branch is omitted outside a repository
-or on a detached HEAD. Explicit arguments bypass title derivation.
+`$SANDBOX_NAME` is the sandbox name in sbx 0.39+. For compatibility with older
+releases, the script falls back to the legacy `$SANDBOX_VM_ID`, then the
+container hostname, and finally `Codex`. The bracketed branch is omitted outside
+a repository or on a detached HEAD. Explicit arguments bypass title derivation.
 
 ## Install
 

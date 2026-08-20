@@ -1,0 +1,106 @@
+#!/usr/bin/env bash
+# notify-host — raise a desktop notification on the machine running your terminal,
+# by emitting an OSC escape sequence that travels over the terminal stream.
+#
+#   notify-host "Build finished" "42 tests passed"
+#   notify-host --hook            # read Claude Code hook JSON from stdin
+#
+# In --hook mode the title identifies *which* session is asking — `<sandbox>` or
+# `<sandbox> [<branch>]` — so that concurrent sandboxes are told apart at a
+# glance. Called with explicit arguments, the caller's title is used verbatim.
+#
+# Env:
+#   NOTIFY_OSC=777|9   escape flavour (default 777)
+#   NOTIFY_TTY=/dev/…  force the output terminal
+set -uo pipefail
+
+if [ "${1:-}" = "--hook" ]; then
+  # Claude Code delivers hook input as JSON on stdin. Notification events carry
+  # .message; tool events carry .tool_name instead, so ExitPlanMode gets a phrased
+  # body and anything else falls back to the tool, then the event name. .cwd is
+  # the session's working directory, which is what the branch is read from.
+  payload=$(cat)
+  # cwd comes out first so it can be read as a single line; .message may well be
+  # multi-line, so it goes last and is swallowed whole.
+  { read -r cwd; body=$(cat); } < <(
+    printf '%s' "$payload" |
+      jq -r '
+        (.cwd // ""),
+        (.message
+         // (.tool_name | if . == "ExitPlanMode" then "Plan ready for your review" else . end)
+         // .hook_event_name
+         // "notification")
+      ' 2>/dev/null
+  )
+  [ -z "${body:-}" ] && body="notification"
+
+  # SANDBOX_NAME is the sandbox name in sbx 0.39+. Fall back to the legacy
+  # SANDBOX_VM_ID used by earlier releases, then the hostname outside sbx.
+  title=${SANDBOX_NAME:-${SANDBOX_VM_ID:-$(hostname 2>/dev/null)}}
+  [ -z "$title" ] && title="Claude Code"
+
+  # Empty for a detached HEAD, non-zero outside a repo — both mean "no branch to
+  # show", so the bracketed segment is dropped rather than left empty.
+  branch=$(git -C "${cwd:-.}" branch --show-current 2>/dev/null)
+  [ -n "$branch" ] && title="$title [$branch]"
+else
+  title=${1:-Notification}
+  body=${2:-}
+fi
+
+case ${NOTIFY_OSC:-777} in
+  9)   seq=$'\e]9;'"${title}${body:+: $body}"$'\a' ;;
+  # `;` is the field separator here, and git permits it in a refname — a branch
+  # containing one would silently split the title and eat the body.
+  777) seq=$'\e]777;notify;'"${title//;/,};${body}"$'\a' ;;
+  *)   echo "notify-host: NOTIFY_OSC must be 9 or 777" >&2; exit 2 ;;
+esac
+
+# Inside tmux the sequence must be wrapped in a passthrough envelope, and every
+# ESC in the payload doubled. Requires: tmux set -g allow-passthrough on
+#
+# This kit assumes the host always runs tmux, so the envelope is unconditional.
+# Auto-detection isn't an option anyway: $TMUX is only set when tmux runs in this
+# same container, and when tmux is running outside (on the SSH host, past a
+# docker exec boundary) not even TERM reliably survives.
+seq=$'\ePtmux;'"${seq//$'\e'/$'\e\e'}"$'\e\\'
+
+# Resolve where to write. Hooks (and Claude Code's own subprocesses) are spawned
+# detached from the controlling terminal, so /dev/tty fails and we have to walk
+# the parent chain to find the pty that Claude Code itself is attached to.
+resolve_tty() {
+  [ -n "${NOTIFY_TTY:-}" ] && { echo "$NOTIFY_TTY"; return; }
+  if { : >/dev/tty; } 2>/dev/null; then echo /dev/tty; return; fi
+  local p=$$ t fd
+  while [ -n "$p" ] && [ "$p" != 0 ]; do
+    t=$(ps -o tty= -p "$p" 2>/dev/null | tr -d '[:space:]')
+    case $t in
+      pts/*) [ -w "/dev/$t" ] && { echo "/dev/$t"; return; } ;;
+    esac
+    # Having no *controlling* terminal is not the same as having no terminal,
+    # and `ps -o tty=` only reports the former. `sbx exec -it <box> claude`
+    # hands claude the pty on its stdio without making it the session's
+    # controlling tty, so every rung of this walk reports `?` even though the
+    # pty is sitting right there on fd 0/1/2. (Going through a shell first —
+    # `sbx exec -it <box> /bin/bash`, then `claude` — sets up a session with a
+    # controlling tty, which is why that path worked and the direct one didn't.)
+    for fd in 0 1 2; do
+      t=$(readlink "/proc/$p/fd/$fd" 2>/dev/null)
+      case $t in
+        /dev/pts/*) [ -w "$t" ] && { echo "$t"; return; } ;;
+      esac
+    done
+    p=$(awk '/^PPid:/{print $2}' "/proc/$p/status" 2>/dev/null)
+  done
+}
+
+target=$(resolve_tty)
+if [ -n "$target" ]; then
+  printf '%s' "$seq" > "$target"
+else
+  # Last resort. If stdout is a pipe (hooks) rather than a terminal, this
+  # goes nowhere visible and the notification is silently lost, so say so —
+  # otherwise a failed notify is indistinguishable from a delivered one.
+  [ -t 1 ] || echo "notify-host: no terminal found; notification not delivered" >&2
+  printf '%s' "$seq"
+fi

@@ -44,12 +44,13 @@ so concurrent sandboxes are told apart without hunting through tmux windows:
 
 ```
 claude-sbx-kits [main]
-└─ $SANDBOX_VM_ID   └─ git branch in the session's cwd
+└─ $SANDBOX_NAME    └─ git branch in the session's cwd
 ```
 
-`$SANDBOX_VM_ID` is the `sbx` sandbox name, falling back to the container
-hostname and then to `Claude Code`. The bracketed branch is dropped entirely on
-a detached HEAD or outside a repository. Calling `notify-host` with explicit
+`$SANDBOX_NAME` is the sandbox name in sbx 0.39+. For compatibility with older
+releases, the script falls back to the legacy `$SANDBOX_VM_ID`, then the
+container hostname, and finally `Claude Code`. The bracketed branch is dropped
+on a detached HEAD or outside a repository. Calling `notify-host` with explicit
 arguments bypasses all of this and uses the title you pass.
 
 ## Install
