@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "skills": {
+    "kit-author": {
+      "source": "docker/sbx-kits-contrib",
+      "ref": "main",
+      "sourceType": "github",
+      "skillPath": "skills/kit-author/SKILL.md",
+      "computedHash": "85dfa5726a911458cde718e6e4ffbd52f13318317cfac88201cbb3a86e9c96da"
+    }
+  }
+}
