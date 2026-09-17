@@ -90,7 +90,6 @@ jobs:
     permissions:
       contents: read
       packages: write
-      id-token: write
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
@@ -155,8 +154,12 @@ jobs:
             digest=$(jq -r .digest <<< "$descriptor")
             echo "Immutable tag already exists; reusing ${digest}"
           elif grep -qiE 'not found|manifest unknown|name unknown|404' "$error_log"; then
-            echo "Publishing signed kit artifact"
-            sbx kit push "kits/${kit}" "${ref}:${tag}" --sign
+            # sbx always attaches provenance. Do not add --sign here: GHCR uses
+            # the OCI referrers-tag fallback and rejects the manifest DELETE
+            # that oras-go performs while replacing its index for a second
+            # referrer, causing an otherwise successful push to exit with 405.
+            echo "Publishing kit artifact with provenance"
+            sbx kit push "kits/${kit}" "${ref}:${tag}"
             digest=$(oras manifest fetch --descriptor "${ref}:${tag}" | jq -r .digest)
           else
             echo "::error::Could not determine whether ${ref}:${tag} exists"
@@ -186,7 +189,7 @@ jobs:
           {
             echo "## $KIT"
             echo
-            echo "Published and signed:"
+            echo "Published with provenance:"
             echo
             echo "- \`${REFERENCE}:${IMMUTABLE_TAG}\`"
             echo "- \`${REFERENCE}:latest\`"
